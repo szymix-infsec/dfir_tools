@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windows DFIR Triage Builder</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState } = React;
+        
+        // Lucide icons as inline SVG components
+        const Shield = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+        );
+        
+        const Download = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+        );
+        
+        const CheckSquare = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+        
+        const Square = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeWidth={2} />
+            </svg>
+        );
+        
+        const HardDrive = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+        );
+        
+        const Network = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+            </svg>
+        );
+        
+        const Users = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+        );
+        
+        const Clock = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+        
+        const FileText = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+        );
+
+        function DFIRTriageBuilder() {
+          const [selectedArtifacts, setSelectedArtifacts] = useState({});
+          const [collectionName, setCollectionName] = useState('DFIR_Collection');
+          const [outputFormat, setOutputFormat] = useState('zip');
+          const [includeTimeline, setIncludeTimeline] = useState(false);
+          const [selectedProfile, setSelectedProfile] = useState('custom');
+
+          const collectionProfiles = [
+            { id: 'custom', name: 'Custom Selection', description: 'Manually select artifacts', artifacts: [] },
+            { id: 'quick_triage', name: 'Quick Triage', description: 'Fast collection of key artifacts', artifacts: ['proc_list', 'net_connections', 'user_sessions', 'evt_security', 'evt_system'] },
+            { id: 'persistence', name: 'Persistence Analysis', description: 'Persistence mechanisms', artifacts: ['reg_run_keys', 'sched_tasks', 'proc_services', 'reg_shimcache', 'fs_prefetch', 'fs_startup'] },
+            { id: 'user_activity', name: 'User Activity', description: 'User behavior and file access', artifacts: ['fs_jumplists', 'fs_recent', 'reg_userassist', 'evt_security', 'user_sessions'] },
+            { id: 'network_analysis', name: 'Network Analysis', description: 'Network connections', artifacts: ['net_connections', 'net_shares', 'evt_security', 'proc_list'] },
+            { id: 'execution_artifacts', name: 'Execution Artifacts', description: 'Program execution evidence', artifacts: ['fs_prefetch', 'reg_shimcache', 'reg_amcache', 'reg_userassist', 'evt_application', 'evt_powershell'] },
+            { id: 'comprehensive', name: 'Comprehensive Collection', description: 'All artifacts', artifacts: 'all' }
+          ];
+
+          const requiresAdmin = new Set(['evt_security', 'evt_system', 'evt_application', 'evt_powershell', 'fs_prefetch', 'fs_recycle', 'net_shares', 'proc_services', 'user_accounts', 'user_groups', 'reg_run_keys', 'reg_usb', 'reg_shimcache', 'reg_amcache', 'sched_tasks']);
+
+          const artifactCategories = [
+            {
+              name: 'Event Logs', icon: FileText,
+              artifacts: [
+                { id: 'evt_security', name: 'Security Logs', description: 'Logon events, privilege use', admin: true, adminReason: 'Accessing system event logs requires admin' },
+                { id: 'evt_system', name: 'System Logs', description: 'System events, errors', admin: true, adminReason: 'Accessing system event logs requires admin' },
+                { id: 'evt_application', name: 'Application Logs', description: 'Application events', admin: true, adminReason: 'Accessing application event logs requires admin' },
+                { id: 'evt_powershell', name: 'PowerShell Logs', description: 'Script execution history', admin: true, adminReason: 'Accessing PowerShell operational logs requires admin' }
+              ]
+            },
+            {
+              name: 'Filesystem', icon: HardDrive,
+              artifacts: [
+                { id: 'fs_prefetch', name: 'Prefetch Files', description: 'Program execution evidence', admin: true, adminReason: 'Reading Prefetch requires admin' },
+                { id: 'fs_jumplists', name: 'Jump Lists', description: 'Recently accessed files', admin: false },
+                { id: 'fs_recycle', name: 'Recycle Bin', description: 'Deleted files metadata', admin: true, adminReason: 'Accessing Recycle.Bin requires admin' },
+                { id: 'fs_recent', name: 'Recent Files', description: 'User recent activity', admin: false },
+                { id: 'fs_startup', name: 'Startup Folders', description: 'Auto-start programs and shortcuts', admin: false }
+              ]
+            },
+            {
+              name: 'Network', icon: Network,
+              artifacts: [
+                { id: 'net_connections', name: 'Active Connections', description: 'Current network connections', admin: false },
+                { id: 'net_shares', name: 'Network Shares', description: 'Shared resources', admin: true, adminReason: 'Querying SMB shares requires admin' }
+              ]
+            },
+            {
+              name: 'Processes & Services', icon: Shield,
+              artifacts: [
+                { id: 'proc_list', name: 'Running Processes', description: 'Active process list', admin: false },
+                { id: 'proc_services', name: 'Services', description: 'Windows services status', admin: true, adminReason: 'Full service enumeration requires admin' }
+              ]
+            },
+            {
+              name: 'Users & Sessions', icon: Users,
+              artifacts: [
+                { id: 'user_accounts', name: 'User Accounts', description: 'Local user accounts', admin: true, adminReason: 'Enumerating local users requires admin' },
+                { id: 'user_groups', name: 'Group Membership', description: 'User group assignments', admin: true, adminReason: 'Querying group membership requires admin' },
+                { id: 'user_sessions', name: 'Login Sessions', description: 'Active user sessions', admin: false }
+              ]
+            },
+            {
+              name: 'Registry', icon: HardDrive,
+              artifacts: [
+                { id: 'reg_run_keys', name: 'ASEPs (Autostart)', description: 'Registry autostart extension points', admin: true, adminReason: 'Collects HKLM and HKCU autostart locations' },
+                { id: 'reg_usb', name: 'USB Device History', description: 'Connected USB devices', admin: true, adminReason: 'Reading HKLM SYSTEM requires admin' },
+                { id: 'reg_shimcache', name: 'ShimCache', description: 'Application execution artifacts', admin: true, adminReason: 'Reading HKLM SYSTEM requires admin' },
+                { id: 'reg_amcache', name: 'AmCache', description: 'Program execution evidence', admin: true, adminReason: 'Reading HKLM SYSTEM requires admin' },
+                { id: 'reg_userassist', name: 'UserAssist', description: 'GUI application execution', admin: false }
+              ]
+            },
+            {
+              name: 'Scheduled Tasks', icon: Clock,
+              artifacts: [
+                { id: 'sched_tasks', name: 'Scheduled Tasks', description: 'All scheduled tasks', admin: true, adminReason: 'Full task enumeration requires admin' }
+              ]
+            }
+          ];
+
+          function applyProfile(profileId) {
+            setSelectedProfile(profileId);
+            const profile = collectionProfiles.find(p => p.id === profileId);
+            if (!profile || profileId === 'custom') return;
+            
+            if (profile.artifacts === 'all') {
+              const allArtifacts = {};
+              artifactCategories.forEach(cat => {
+                cat.artifacts.forEach(art => {
+                  allArtifacts[art.id] = true;
+                });
+              });
+              setSelectedArtifacts(allArtifacts);
+            } else {
+              const newSelections = {};
+              profile.artifacts.forEach(id => {
+                newSelections[id] = true;
+              });
+              setSelectedArtifacts(newSelections);
+            }
+          }
+
+          function toggleArtifact(artifactId) {
+            setSelectedProfile('custom');
+            setSelectedArtifacts(prev => ({ ...prev, [artifactId]: !prev[artifactId] }));
+          }
+
+          function toggleCategory(category) {
+            setSelectedProfile('custom');
+            const categoryArtifacts = category.artifacts.map(a => a.id);
+            const allSelected = categoryArtifacts.every(id => selectedArtifacts[id]);
+            const newSelections = { ...selectedArtifacts };
+            categoryArtifacts.forEach(id => { newSelections[id] = !allSelected; });
+            setSelectedArtifacts(newSelections);
+          }
+
+          function selectAll() {
+            setSelectedProfile('comprehensive');
+            const allArtifacts = {};
+            artifactCategories.forEach(cat => {
+              cat.artifacts.forEach(art => { allArtifacts[art.id] = true; });
+            });
+            setSelectedArtifacts(allArtifacts);
+          }
+
+          function clearAll() {
+            setSelectedProfile('custom');
+            setSelectedArtifacts({});
+          }
+
+          function generateScript() {
+            const selected = Object.keys(selectedArtifacts).filter(k => selectedArtifacts[k]);
+            if (selected.length === 0) {
+              alert('Please select at least one artifact to collect');
+              return;
+            }
+
+            const needsAdminPrivileges = selected.some(id => requiresAdmin.has(id));
+            const needsRegistry = selected.some(id => id.startsWith('reg_'));
+            const needsEventLogs = selected.some(id => id.startsWith('evt_'));
+            const needsFilesystem = selected.some(id => id.startsWith('fs_'));
+            const needsNetwork = selected.some(id => id.startsWith('net_'));
+            const needsProcesses = selected.some(id => id.startsWith('proc_'));
+            const needsUsers = selected.some(id => id.startsWith('user_'));
+            const needsScheduledTasks = selected.some(id => id.startsWith('sched_'));
+
+            let script = '# Windows DFIR Triage Collection Script\n';
+            script += '# Generated: ' + new Date().toISOString() + '\n';
+            script += '# Collection Name: ' + collectionName + '\n';
+            script += '# Selected Artifacts: ' + selected.length + '\n';
+            script += needsAdminPrivileges ? '# Requires Administrator\n' : '# No admin required\n';
+            script += needsAdminPrivileges ? '#Requires -RunAsAdministrator\n\n' : '\n';
+            script += '$ErrorActionPreference = "Continue"\n';
+            script += '$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"\n';
+            script += '$hostname = $env:COMPUTERNAME\n';
+            script += '$outputDir = "$PWD\\' + collectionName + '_$hostname_$timestamp"\n\n';
+            script += 'Write-Host "=== Windows DFIR Triage Collection ===" -ForegroundColor Cyan\n';
+            script += 'Write-Host "Output Directory: $outputDir" -ForegroundColor Green\n';
+            script += 'Write-Host ""\n\n';
+            script += 'New-Item -ItemType Directory -Path $outputDir -Force | Out-Null\n';
+            
+            if (needsRegistry) script += 'New-Item -ItemType Directory -Path "$outputDir\\registry" -Force | Out-Null\n';
+            if (needsEventLogs) script += 'New-Item -ItemType Directory -Path "$outputDir\\eventlogs" -Force | Out-Null\n';
+            if (needsFilesystem) script += 'New-Item -ItemType Directory -Path "$outputDir\\filesystem" -Force | Out-Null\n';
+            if (needsNetwork) script += 'New-Item -ItemType Directory -Path "$outputDir\\network" -Force | Out-Null\n';
+            if (needsProcesses) script += 'New-Item -ItemType Directory -Path "$outputDir\\processes" -Force | Out-Null\n';
+            if (needsUsers) script += 'New-Item -ItemType Directory -Path "$outputDir\\users" -Force | Out-Null\n';
+            if (needsScheduledTasks) script += 'New-Item -ItemType Directory -Path "$outputDir\\scheduled_tasks" -Force | Out-Null\n';
+            
+            script += '\n$report = @()\n';
+            script += '$report += "DFIR Triage Collection Report"\n';
+            script += '$report += "Hostname: $hostname"\n';
+            script += '$report += "Collection Time: $(Get-Date)"\n\n';
+
+            const cmdMap = {
+              evt_powershell: '\nWrite-Host "[+] Starting to collect: PowerShell Event Logs" -ForegroundColor Yellow\nwevtutil epl "Microsoft-Windows-PowerShell/Operational" "$outputDir\\eventlogs\\PowerShell.evtx" 2>$null\nWrite-Host "[+] Collected: PowerShell Event Logs" -ForegroundColor Green\n$report += "- PowerShell Logs"\n',
+              evt_security: '\nWrite-Host "[+] Starting to collect: Security Event Logs" -ForegroundColor Yellow\nwevtutil epl Security "$outputDir\\eventlogs\\Security.evtx" 2>$null\nWrite-Host "[+] Collected: Security Event Logs" -ForegroundColor Green\n$report += "- Security Logs"\n',
+              evt_system: '\nWrite-Host "[+] Starting to collect: System Event Logs" -ForegroundColor Yellow\nwevtutil epl System "$outputDir\\eventlogs\\System.evtx" 2>$null\nWrite-Host "[+] Collected: System Event Logs" -ForegroundColor Green\n$report += "- System Logs"\n',
+              evt_application: '\nWrite-Host "[+] Starting to collect: Application Event Logs" -ForegroundColor Yellow\nwevtutil epl Application "$outputDir\\eventlogs\\Application.evtx" 2>$null\nWrite-Host "[+] Collected: Application Event Logs" -ForegroundColor Green\n$report += "- Application Logs"\n',
+              fs_prefetch: '\nWrite-Host "[+] Starting to collect: Prefetch Files" -ForegroundColor Yellow\nNew-Item -ItemType Directory -Path "$outputDir\\filesystem\\prefetch" -Force | Out-Null\nCopy-Item "C:\\Windows\\Prefetch\\*.pf" "$outputDir\\filesystem\\prefetch\\" -ErrorAction SilentlyContinue\nWrite-Host "[+] Collected: Prefetch Files" -ForegroundColor Green\n$report += "- Prefetch"\n',
+              fs_jumplists: '\nWrite-Host "[+] Starting to collect: Jump Lists" -ForegroundColor Yellow\nNew-Item -ItemType Directory -Path "$outputDir\\filesystem\\jumplists" -Force | Out-Null\nCopy-Item "$env:APPDATA\\Microsoft\\Windows\\Recent\\AutomaticDestinations\\*" "$outputDir\\filesystem\\jumplists\\" -ErrorAction SilentlyContinue\nWrite-Host "[+] Collected: Jump Lists" -ForegroundColor Green\n$report += "- Jump Lists"\n',
+              fs_recycle: '\nWrite-Host "[+] Starting to collect: Recycle Bin" -ForegroundColor Yellow\nGet-ChildItem "C:\\$Recycle.Bin" -Recurse -Force -ErrorAction SilentlyContinue | Select-Object FullName, Length, CreationTime | Export-Csv "$outputDir\\filesystem\\RecycleBin.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Recycle Bin" -ForegroundColor Green\n$report += "- Recycle Bin"\n',
+              fs_recent: '\nWrite-Host "[+] Starting to collect: Recent Files" -ForegroundColor Yellow\nGet-ChildItem "$env:APPDATA\\Microsoft\\Windows\\Recent" -ErrorAction SilentlyContinue | Select-Object Name, CreationTime, LastWriteTime, Length, FullName | Export-Csv "$outputDir\\filesystem\\RecentFiles.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Recent Files" -ForegroundColor Green\n$report += "- Recent Files"\n',
+              fs_startup: '\nWrite-Host "[+] Starting to collect: Startup Folders" -ForegroundColor Yellow\n$startupData = @()\n$startupPaths = @(\n  @{Path="$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"; Scope="CurrentUser"},\n  @{Path="C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"; Scope="AllUsers"}\n)\nforeach ($loc in $startupPaths) {\n  if (Test-Path $loc.Path) {\n    Get-ChildItem $loc.Path -ErrorAction SilentlyContinue | ForEach-Object {\n      $target = ""\n      if ($_.Extension -eq ".lnk") {\n        $shell = New-Object -ComObject WScript.Shell\n        $shortcut = $shell.CreateShortcut($_.FullName)\n        $target = $shortcut.TargetPath + " " + $shortcut.Arguments\n      }\n      $startupData += [PSCustomObject]@{\n        Scope = $loc.Scope\n        FileName = $_.Name\n        FullPath = $_.FullName\n        Target = $target\n        CreationTime = $_.CreationTime\n        LastWriteTime = $_.LastWriteTime\n      }\n    }\n  }\n}\n$startupData | Export-Csv "$outputDir\\filesystem\\Startup_Folders.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Startup Folders ($($startupData.Count) items)" -ForegroundColor Green\n$report += "- Startup Folders"\n',
+              net_connections: '\nWrite-Host "[+] Starting to collect: Network Connections" -ForegroundColor Yellow\n$collectionTime = Get-Date -Format "o"\nGet-NetTCPConnection | Select-Object @{N="CollectionTime";E={$collectionTime}}, LocalAddress, LocalPort, RemoteAddress, RemotePort, State | Export-Csv "$outputDir\\network\\TCP.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Network Connections" -ForegroundColor Green\n$report += "- Network Connections"\n',
+              net_shares: '\nWrite-Host "[+] Starting to collect: Network Shares" -ForegroundColor Yellow\nGet-SmbShare | Export-Csv "$outputDir\\network\\Shares.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Network Shares" -ForegroundColor Green\n$report += "- Shares"\n',
+              proc_list: '\nWrite-Host "[+] Starting to collect: Running Processes" -ForegroundColor Yellow\nGet-WmiObject Win32_Process | Select-Object ProcessId, Name, ExecutablePath, CommandLine, CreationDate, ParentProcessId | Export-Csv "$outputDir\\processes\\Processes.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Running Processes" -ForegroundColor Green\n$report += "- Processes"\n',
+              proc_services: '\nWrite-Host "[+] Starting to collect: Services" -ForegroundColor Yellow\n$collectionTime = Get-Date -Format "o"\nGet-WmiObject Win32_Service | Select-Object @{N="CollectionTime";E={$collectionTime}}, Name, DisplayName, State, StartMode, PathName, StartName, ProcessId, Description | Export-Csv "$outputDir\\processes\\Services.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Services" -ForegroundColor Green\n$report += "- Services"\n',
+              user_accounts: '\nWrite-Host "[+] Starting to collect: User Accounts" -ForegroundColor Yellow\nGet-LocalUser | Select-Object Name, Enabled, LastLogon | Export-Csv "$outputDir\\users\\Accounts.csv" -NoTypeInformation\nWrite-Host "[+] Collected: User Accounts" -ForegroundColor Green\n$report += "- User Accounts"\n',
+              user_groups: '\nWrite-Host "[+] Starting to collect: Group Membership" -ForegroundColor Yellow\nGet-LocalGroup | ForEach-Object { $g = $_.Name; Get-LocalGroupMember -Group $g -ErrorAction SilentlyContinue | Select-Object @{N=\'Group\';E={$g}}, Name } | Export-Csv "$outputDir\\users\\Groups.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Group Membership" -ForegroundColor Green\n$report += "- Groups"\n',
+              user_sessions: '\nWrite-Host "[+] Starting to collect: Login Sessions" -ForegroundColor Yellow\ntry {\n  query user 2>$null | Out-File "$outputDir\\users\\Sessions.txt"\n} catch {\n  Get-CimInstance -ClassName Win32_LogonSession | Where-Object { $_.LogonType -eq 2 -or $_.LogonType -eq 10 } | ForEach-Object {\n    $session = $_\n    $user = Get-CimInstance -ClassName Win32_LoggedOnUser | Where-Object { $_.Dependent.LogonId -eq $session.LogonId } | Select-Object -First 1\n    if ($user) {\n      $account = Get-CimInstance -ClassName Win32_Account | Where-Object { $_.Domain -eq $user.Antecedent.Domain -and $_.Name -eq $user.Antecedent.Name } | Select-Object -First 1\n      [PSCustomObject]@{\n        Username = "$($user.Antecedent.Domain)\\$($user.Antecedent.Name)"\n        SessionId = $session.LogonId\n        LogonType = $session.LogonType\n        StartTime = $session.StartTime\n      }\n    }\n  } | Export-Csv "$outputDir\\users\\Sessions.csv" -NoTypeInformation\n}\nWrite-Host "[+] Collected: Login Sessions" -ForegroundColor Green\n$report += "- Sessions"\n',
+              user_profiles: '\nWrite-Host "[+] Starting to collect: User Profiles" -ForegroundColor Yellow\nGet-WmiObject Win32_UserProfile | Select-Object LocalPath, LastUseTime | Export-Csv "$outputDir\\users\\Profiles.csv" -NoTypeInformation\nWrite-Host "[+] Collected: User Profiles" -ForegroundColor Green\n$report += "- Profiles"\n',
+              reg_run_keys: '\nWrite-Host "[+] Starting to collect: Registry ASEPs (Autostart Extension Points)" -ForegroundColor Yellow\n$collectionTime = Get-Date -Format "o"\n$runKeys = @(\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",\n  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",\n  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnceEx",\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run",\n  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run",\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices",\n  "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce",\n  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices",\n  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce",\n  "HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Run",\n  "HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\RunOnce",\n  "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows\\Load",\n  "HKLM:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"\n)\n$runData = @()\nforeach ($key in $runKeys) {\n  if (Test-Path $key) {\n    $keyShort = $key -replace "HKLM:\\\\|HKCU:\\\\", ""\n    try {\n      $props = Get-ItemProperty $key -ErrorAction SilentlyContinue\n      if ($props) {\n        $props.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {\n          $runData += [PSCustomObject]@{\n            CollectionTime = $collectionTime\n            Hive = if ($key -like "HKLM:*") { "HKLM" } else { "HKCU" }\n            Key = $keyShort\n            Name = $_.Name\n            Value = $_.Value\n          }\n        }\n      }\n    } catch { }\n  }\n}\n$runData | Export-Csv "$outputDir\\registry\\ASEPs.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Registry ASEPs ($($runData.Count) entries)" -ForegroundColor Green\n$report += "- Registry ASEPs"\n',
+              reg_usb: '\nWrite-Host "[+] Starting to collect: USB Device History" -ForegroundColor Yellow\n$usbKey = "HKLM\\SYSTEM\\CurrentControlSet\\Enum\\USBSTOR"\nif (Test-Path "Registry::$usbKey") {\n  reg export $usbKey "$outputDir\\registry\\USB_Devices.reg" /y 2>$null\n  Write-Host "[+] Collected: USB Device History" -ForegroundColor Green\n} else {\n  Write-Host "[!] USB Device History key not found" -ForegroundColor Yellow\n}\n$report += "- USB Device History"\n',
+              reg_shimcache: '\nWrite-Host "[+] Starting to collect: ShimCache" -ForegroundColor Yellow\n$shimKey = "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\AppCompatCache"\nif (Test-Path "Registry::$shimKey") {\n  reg export $shimKey "$outputDir\\registry\\ShimCache.reg" /y 2>$null\n  Write-Host "[+] Collected: ShimCache" -ForegroundColor Green\n} else {\n  Write-Host "[!] ShimCache key not found" -ForegroundColor Yellow\n}\n$report += "- ShimCache"\n',
+              reg_amcache: '\nWrite-Host "[+] Starting to collect: AmCache" -ForegroundColor Yellow\n$amcacheKey = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\AmCache"\nif (Test-Path "Registry::$amcacheKey") {\n  reg export $amcacheKey "$outputDir\\registry\\AmCache.reg" /y 2>$null\n  Write-Host "[+] Collected: AmCache (registry key)" -ForegroundColor Green\n} else {\n  Write-Host "[!] AmCache registry key not found" -ForegroundColor Yellow\n}\n$report += "- AmCache (registry export only, hive file typically locked)"\n',
+              reg_userassist: '\nWrite-Host "[+] Starting to collect: UserAssist" -ForegroundColor Yellow\nreg export "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist" "$outputDir\\registry\\UserAssist.reg" /y 2>$null\nWrite-Host "[+] Collected: UserAssist" -ForegroundColor Green\n$report += "- UserAssist"\n',
+              sched_tasks: '\nWrite-Host "[+] Starting to collect: Scheduled Tasks" -ForegroundColor Yellow\n$collectionTime = Get-Date -Format "o"\nGet-ScheduledTask | ForEach-Object {\n  $task = $_\n  $actions = if ($task.Actions) { ($task.Actions | ForEach-Object { if ($_.Execute) { $_.Execute } }) -join "; " } else { "" }\n  $arguments = if ($task.Actions) { ($task.Actions | ForEach-Object { if ($_.Arguments) { $_.Arguments } }) -join "; " } else { "" }\n  $triggers = if ($task.Triggers) { ($task.Triggers | ForEach-Object { $_.GetType().Name }) -join "; " } else { "" }\n  [PSCustomObject]@{\n    CollectionTime = $collectionTime\n    TaskName = $task.TaskName\n    TaskPath = $task.TaskPath\n    State = $task.State\n    Author = $task.Author\n    Description = $task.Description\n    Actions = $actions\n    Arguments = $arguments\n    Triggers = $triggers\n  }\n} | Export-Csv "$outputDir\\scheduled_tasks\\Tasks.csv" -NoTypeInformation\nWrite-Host "[+] Collected: Scheduled Tasks" -ForegroundColor Green\n$report += "- Tasks"\n',
+              sched_at: '\nWrite-Host "[+] Starting to collect: AT Jobs" -ForegroundColor Yellow\nat 2>$null | Out-File "$outputDir\\scheduled_tasks\\AT.txt"\nWrite-Host "[+] Collected: AT Jobs" -ForegroundColor Green\n$report += "- AT Jobs"\n'
+            };
+
+            selected.forEach(id => {
+              if (cmdMap[id]) script += cmdMap[id];
+            });
+
+            if (includeTimeline) {
+              script += '\nWrite-Host "[+] Starting to collect: Collection Metadata" -ForegroundColor Yellow\n';
+              script += '$metadata = @()\n';
+              script += 'Get-ChildItem $outputDir -Recurse -File | ForEach-Object {\n';
+              script += '  $metadata += [PSCustomObject]@{CollectedFile=$_.Name; CollectedPath=$_.FullName; CollectionTime=$_.CreationTime; FileSize=$_.Length}\n';
+              script += '}\n';
+              script += '$metadata | Sort-Object CollectionTime | Export-Csv "$outputDir\\collection_metadata.csv" -NoTypeInformation\n';
+              script += 'Write-Host "[+] Collected: Collection Metadata" -ForegroundColor Green\n';
+            }
+
+            script += '\n$report | Out-File "$outputDir\\report.txt"\n\n';
+
+            if (outputFormat === 'zip' || outputFormat === 'json') {
+              script += 'Compress-Archive -Path $outputDir -DestinationPath "$outputDir.zip" -Force\n';
+              script += 'Write-Host "Output: $outputDir.zip" -ForegroundColor Green\n';
+            }
+
+            if (outputFormat === 'json') {
+              script += '@{hostname=$hostname; time=(Get-Date).ToString("o"); count=' + selected.length + '} | ConvertTo-Json | Out-File "$outputDir\\manifest.json"\n';
+            }
+
+            if (outputFormat === 'folder') {
+              script += 'Write-Host "Output: $outputDir" -ForegroundColor Green\n';
+            }
+
+            script += 'Write-Host "Collected ' + selected.length + ' artifacts" -ForegroundColor Cyan\n';
+
+            const blob = new Blob([script], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = collectionName + '_collector.ps1';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+
+          const selectedCount = Object.values(selectedArtifacts).filter(Boolean).length;
+          const selectedAdminCount = Object.keys(selectedArtifacts).filter(k => selectedArtifacts[k] && requiresAdmin.has(k)).length;
+
+          function renderArtifactCard(artifact) {
+            const isSelected = selectedArtifacts[artifact.id];
+            const baseClass = 'p-3 rounded-lg cursor-pointer transition-all ';
+            const stateClass = isSelected ? 'bg-blue-900 border-2 border-blue-500' : 'bg-slate-700 border-2 border-slate-600 hover:border-slate-500';
+            
+            return (
+              <div key={artifact.id} onClick={() => toggleArtifact(artifact.id)} className={baseClass + stateClass}>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1">
+                    {isSelected ? <CheckSquare className="w-5 h-5 text-blue-400" /> : <Square className="w-5 h-5 text-slate-500" />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium text-white">{artifact.name}</div>
+                      {artifact.admin && <span className="text-xs px-1.5 py-0.5 bg-slate-600 text-slate-300 rounded border border-slate-500 cursor-help" title={artifact.adminReason}>⚡</span>}
+                    </div>
+                    <div className="text-sm text-slate-400 mt-1">{artifact.description}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-6">
+              <div className="max-w-7xl mx-auto">
+                <div className="bg-slate-800 rounded-lg shadow-xl p-6 mb-6 border border-blue-500">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Shield className="w-8 h-8 text-blue-400" />
+                    <h1 className="text-3xl font-bold text-white">Windows DFIR Triage Builder</h1>
+                  </div>
+                  <p className="text-slate-300">Select artifacts to collect from target Windows systems.</p>
+                </div>
+
+                <div className="bg-slate-800 rounded-lg shadow-xl p-6 mb-6 border border-slate-700">
+                  <h2 className="text-xl font-semibold text-white mb-4">Configuration</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Profile</label>
+                      <select value={selectedProfile} onChange={(e) => applyProfile(e.target.value)} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {collectionProfiles.map(profile => (
+                          <option key={profile.id} value={profile.id}>{profile.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-slate-400 mt-1">{collectionProfiles.find(p => p.id === selectedProfile)?.description}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Collection Name</label>
+                      <input type="text" value={collectionName} onChange={(e) => setCollectionName(e.target.value)} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Output Format</label>
+                      <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="zip">ZIP Archive</option>
+                        <option value="folder">Folder Only</option>
+                        <option value="json">JSON + ZIP</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                      <input type="checkbox" checked={includeTimeline} onChange={(e) => setIncludeTimeline(e.target.checked)} className="w-4 h-4 rounded" />
+                      <span>Generate collection metadata CSV</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800 rounded-lg shadow-xl p-4 mb-6 border border-slate-700">
+                  <div className="flex flex-wrap gap-3 justify-between items-center">
+                    <div className="flex gap-3">
+                      <button onClick={selectAll} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Select All</button>
+                      <button onClick={clearAll} className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium">Clear All</button>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-slate-300 font-medium">
+                        Selected: <span className="text-blue-400">{selectedCount}</span>
+                        {selectedAdminCount > 0 && <span className="ml-2 text-orange-400">({selectedAdminCount} need admin)</span>}
+                      </span>
+                      <button onClick={generateScript} disabled={selectedCount === 0} className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 text-white rounded-lg font-medium">
+                        <Download className="w-5 h-5" />
+                        Generate
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {artifactCategories.map((category, idx) => {
+                    const Icon = category.icon;
+                    const catSelected = category.artifacts.filter(a => selectedArtifacts[a.id]).length;
+                    const catTotal = category.artifacts.length;
+                    
+                    return (
+                      <div key={idx} className="bg-slate-800 rounded-lg shadow-xl border border-slate-700 overflow-hidden">
+                        <div className="p-4 border-b border-slate-700 cursor-pointer hover:bg-slate-700" onClick={() => toggleCategory(category)}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Icon className="w-6 h-6 text-blue-400" />
+                              <h3 className="text-lg font-semibold text-white">{category.name}</h3>
+                              <span className="text-sm text-slate-400">({catSelected}/{catTotal})</span>
+                            </div>
+                            {catSelected === catTotal ? <CheckSquare className="w-5 h-5 text-green-400" /> : catSelected > 0 ? <CheckSquare className="w-5 h-5 text-blue-400" /> : <Square className="w-5 h-5 text-slate-500" />}
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {category.artifacts.map(renderArtifactCard)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 text-center text-slate-400 text-sm">
+                  <p>⚡ Hover over lightning icon for admin requirements</p>
+                  <p className="mt-1">Always review scripts before running</p>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<DFIRTriageBuilder />, document.getElementById('root'));
+    </script>
+</body>
+</html>

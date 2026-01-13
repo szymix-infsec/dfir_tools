@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFIR Timeline Builder</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState } = React;
+        
+        // Lucide icons as inline SVG
+        const Upload = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+        );
+        
+        const Clock = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+        
+        const Filter = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+        );
+        
+        const Download = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+        );
+        
+        const Trash2 = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+        );
+        
+        const Search = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+        );
+import Papa from 'papaparse';
+
+function DFIRTimelineBuilder() {
+  const [timeline, setTimeline] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filterText, setFilterText] = useState('');
+  const [selectedSources, setSelectedSources] = useState(new Set());
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [expandedRows, setExpandedRows] = useState(new Set());
+
+  async function handleMultipleFiles(e) {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setLoading(true);
+    setTimeline([]);
+
+    try {
+      const allEvents = [];
+
+      for (const file of files) {
+        if (!file.name.endsWith('.csv')) continue;
+
+        const csvText = await file.text();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const source = file.name.replace('.csv', '');
+        
+        parseCSVData(parsed.data, source, allEvents);
+      }
+
+      allEvents.sort((a, b) => {
+        // Handle null timestamps - put them at the end
+        if (!a.timestamp && !b.timestamp) return 0;
+        if (!a.timestamp) return 1;
+        if (!b.timestamp) return -1;
+        return b.timestamp - a.timestamp;
+      });
+      setTimeline(allEvents);
+
+      const sources = new Set(allEvents.map(e => e.source));
+      setSelectedSources(sources);
+
+    } catch (error) {
+      alert('Error processing files: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function parseWMIDate(wmiDate) {
+    if (!wmiDate) return null;
+    // WMI date format: YYYYMMDDHHMMSS.mmmmmm+UUU
+    const year = parseInt(wmiDate.substr(0, 4));
+    const month = parseInt(wmiDate.substr(4, 2)) - 1;
+    const day = parseInt(wmiDate.substr(6, 2));
+    const hour = parseInt(wmiDate.substr(8, 2));
+    const minute = parseInt(wmiDate.substr(10, 2));
+    const second = parseInt(wmiDate.substr(12, 2));
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  function formatAsKeyValue(obj, excludeKeys = []) {
+    return Object.entries(obj)
+      .filter(([key]) => !excludeKeys.includes(key))
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+  }
+
+  function parseCSVData(data, source, allEvents) {
+    if (source.includes('Processes')) {
+      data.forEach(row => {
+        if (row.CreationDate) {
+          const timestamp = parseWMIDate(row.CreationDate);
+          if (timestamp) {
+            allEvents.push({
+              timestamp: timestamp,
+              source: 'Processes',
+              event: 'Process Created',
+              details: `Process: ${row.Name} (PID: ${row.ProcessId})`,
+              data: `Command: ${row.CommandLine || 'N/A'}`,
+              raw: row
+            });
+          }
+        }
+      });
+    } else if (source.includes('Services')) {
+      data.forEach(row => {
+        const serviceDetails = [];
+        if (row.PathName) serviceDetails.push(`Path: ${row.PathName}`);
+        if (row.StartMode) serviceDetails.push(`StartMode: ${row.StartMode}`);
+        if (row.StartName) serviceDetails.push(`RunAs: ${row.StartName}`);
+        if (row.ProcessId && row.ProcessId !== '0') serviceDetails.push(`PID: ${row.ProcessId}`);
+        if (row.Description) serviceDetails.push(`Description: ${row.Description}`);
+        
+        // Try to use CollectionTime if available
+        let timestamp = null;
+        if (row.CollectionTime) {
+          try {
+            timestamp = new Date(row.CollectionTime);
+          } catch (e) { }
+        }
+        
+        allEvents.push({
+          timestamp: timestamp,
+          source: 'Services',
+          event: 'Service Enumerated',
+          details: `Service: ${row.DisplayName || row.Name} (${row.State})`,
+          data: serviceDetails.join('\n'),
+          raw: row
+        });
+      });
+    } else if (source.includes('ASEP')) {
+      data.forEach(row => {
+        // Try to use CollectionTime if available
+        let timestamp = null;
+        if (row.CollectionTime) {
+          try {
+            timestamp = new Date(row.CollectionTime);
+          } catch (e) { }
+        }
+        
+        allEvents.push({
+          timestamp: timestamp,
+          source: 'ASEPs',
+          event: 'Autostart Entry',
+          details: `Registry Key: ${row.Name} [${row.Hive}\\${row.Key}]`,
+          data: row.Value,
+          raw: row
+        });
+      });
+    } else if (source.includes('Startup')) {
+      data.forEach(row => {
+        if (row.CreationTime) {
+          allEvents.push({
+            timestamp: new Date(row.CreationTime),
+            source: 'Startup Folders',
+            event: 'Startup Item Created',
+            details: `Startup Item: ${row.FileName} (${row.Scope})`,
+            data: `Target: ${row.Target || 'N/A'}`,
+            raw: row
+          });
+        }
+      });
+    } else if (source.includes('Tasks')) {
+      data.forEach(row => {
+        const actionDetails = [];
+        if (row.Actions) actionDetails.push(`Execute: ${row.Actions}`);
+        if (row.Arguments) actionDetails.push(`Arguments: ${row.Arguments}`);
+        if (row.Triggers) actionDetails.push(`Triggers: ${row.Triggers}`);
+        if (row.Author) actionDetails.push(`Author: ${row.Author}`);
+        if (row.Description) actionDetails.push(`Description: ${row.Description}`);
+        
+        // Try to use CollectionTime if available
+        let timestamp = null;
+        if (row.CollectionTime) {
+          try {
+            timestamp = new Date(row.CollectionTime);
+          } catch (e) { }
+        }
+        
+        allEvents.push({
+          timestamp: timestamp,
+          source: 'Scheduled Tasks',
+          event: 'Task Configured',
+          details: `Task Name: ${row.TaskName} (${row.State})`,
+          data: actionDetails.join('\n'),
+          raw: row
+        });
+      });
+    } else if (source.includes('TCP') || source.includes('Network')) {
+      data.forEach(row => {
+        const networkDetails = [];
+        if (row.LocalAddress && row.LocalPort) {
+          networkDetails.push(`Local: ${row.LocalAddress}:${row.LocalPort}`);
+        }
+        if (row.RemoteAddress && row.RemotePort) {
+          networkDetails.push(`Remote: ${row.RemoteAddress}:${row.RemotePort}`);
+        }
+        if (row.State) {
+          networkDetails.push(`State: ${row.State}`);
+        }
+        if (row.OwningProcess) {
+          networkDetails.push(`PID: ${row.OwningProcess}`);
+        }
+        
+        // Try to use CollectionTime as timestamp
+        let timestamp = null;
+        if (row.CollectionTime) {
+          try {
+            timestamp = new Date(row.CollectionTime);
+            // Don't add it to data details since we're using it as timestamp
+          } catch (e) { }
+        }
+        
+        allEvents.push({
+          timestamp: timestamp,
+          source: 'Network',
+          event: 'Network Connection',
+          details: `Remote Host: ${row.RemoteAddress || 'Unknown'}:${row.RemotePort || '?'}`,
+          data: networkDetails.join('\n'),
+          raw: row
+        });
+      });
+    } else if (source.includes('Recent')) {
+      data.forEach(row => {
+        if (row.CreationTime) {
+          allEvents.push({
+            timestamp: new Date(row.CreationTime),
+            source: 'Recent Files',
+            event: 'File Accessed',
+            details: `File: ${row.Name}`,
+            data: formatAsKeyValue(row, ['Name', 'CreationTime']),
+            raw: row
+          });
+        }
+      });
+    } else if (source.includes('Accounts')) {
+      data.forEach(row => {
+        if (row.LastLogon && row.LastLogon !== '') {
+          allEvents.push({
+            timestamp: new Date(row.LastLogon),
+            source: 'User Accounts',
+            event: 'Last Logon',
+            details: `User: ${row.Name}`,
+            data: `Enabled: ${row.Enabled}`,
+            raw: row
+          });
+        }
+      });
+    } else {
+      // Generic CSV handler
+      data.forEach(row => {
+        const timeFields = Object.keys(row).filter(k => 
+          k.toLowerCase().includes('time') || 
+          k.toLowerCase().includes('date')
+        );
+        
+        if (timeFields.length > 0 && row[timeFields[0]]) {
+          allEvents.push({
+            timestamp: new Date(row[timeFields[0]]),
+            source: source,
+            event: 'Entry',
+            details: row[Object.keys(row)[0]] || 'Unknown',
+            data: formatAsKeyValue(row, [Object.keys(row)[0], timeFields[0]]),
+            raw: row
+          });
+        }
+      });
+    }
+  }
+
+  function clearTimeline() {
+    setTimeline([]);
+    setFilterText('');
+    setSelectedSources(new Set());
+    setDateRange({ start: '', end: '' });
+    setExpandedRows(new Set());
+  }
+
+  function toggleExpand(index) {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index);
+    } else {
+      newExpanded.add(index);
+    }
+    setExpandedRows(newExpanded);
+  }
+
+  function toggleSource(source) {
+    const newSources = new Set(selectedSources);
+    if (newSources.has(source)) {
+      newSources.delete(source);
+    } else {
+      newSources.add(source);
+    }
+    setSelectedSources(newSources);
+  }
+
+  function exportTimeline() {
+    const filtered = getFilteredTimeline();
+    const csv = Papa.unparse(filtered.map(e => ({
+      Timestamp: e.timestamp ? e.timestamp.toISOString() : 'N/A',
+      Source: e.source,
+      Event: e.event,
+      Details: e.details,
+      Data: e.data
+    })));
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dfir_timeline_' + new Date().getTime() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function getFilteredTimeline() {
+    return timeline.filter(event => {
+      // Filter by source
+      if (!selectedSources.has(event.source)) return false;
+
+      // Filter by search text
+      if (filterText) {
+        const searchLower = filterText.toLowerCase();
+        const matchesSearch = 
+          event.details.toLowerCase().includes(searchLower) ||
+          event.data.toLowerCase().includes(searchLower) ||
+          event.event.toLowerCase().includes(searchLower);
+        if (!matchesSearch) return false;
+      }
+
+      // Filter by date range
+      if (dateRange.start && event.timestamp && event.timestamp < new Date(dateRange.start)) return false;
+      if (dateRange.end && event.timestamp && event.timestamp > new Date(dateRange.end)) return false;
+
+      return true;
+    });
+  }
+
+  const filteredTimeline = getFilteredTimeline();
+  const uniqueSources = [...new Set(timeline.map(e => e.source))];
+
+  const sourceColors = {
+    'Processes': 'bg-blue-100 text-blue-800 border-blue-300',
+    'Services': 'bg-purple-100 text-purple-800 border-purple-300',
+    'ASEPs': 'bg-red-100 text-red-800 border-red-300',
+    'Startup Folders': 'bg-orange-100 text-orange-800 border-orange-300',
+    'Scheduled Tasks': 'bg-yellow-100 text-yellow-800 border-yellow-300',
+    'Network': 'bg-green-100 text-green-800 border-green-300',
+    'User Accounts': 'bg-indigo-100 text-indigo-800 border-indigo-300'
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-slate-800 rounded-lg shadow-xl p-6 mb-6 border border-purple-500">
+          <div className="flex items-center gap-3 mb-4">
+            <Clock className="w-8 h-8 text-purple-400" />
+            <h1 className="text-3xl font-bold text-white">DFIR Timeline Builder</h1>
+          </div>
+          <p className="text-slate-300">Upload your triage collection CSV files to build a unified forensic timeline</p>
+        </div>
+
+        <div className="bg-slate-800 rounded-lg shadow-xl p-6 mb-6 border border-slate-700">
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="flex items-center justify-center gap-3 px-6 py-8 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-purple-500 hover:bg-slate-750 transition-all">
+                <Upload className="w-6 h-6 text-purple-400" />
+                <span className="text-slate-300 font-medium">
+                  {loading ? 'Processing CSV files...' : 'Select Folder or Multiple CSV Files'}
+                </span>
+                <input 
+                  type="file" 
+                  webkitdirectory="" 
+                  directory="" 
+                  multiple 
+                  onChange={handleMultipleFiles} 
+                  className="hidden" 
+                  disabled={loading} 
+                />
+              </label>
+              <p className="text-xs text-slate-400 mt-2 text-center">
+                Click to select your entire triage collection folder - all CSVs will be loaded automatically
+              </p>
+            </div>
+            
+            {timeline.length > 0 && (
+              <div className="flex gap-3">
+                <button onClick={exportTimeline} className="flex items-center gap-2 px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium">
+                  <Download className="w-5 h-5" />
+                  Export CSV
+                </button>
+                <button onClick={clearTimeline} className="flex items-center gap-2 px-6 py-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium">
+                  <Trash2 className="w-5 h-5" />
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {timeline.length > 0 && (
+          <>
+            <div className="bg-slate-800 rounded-lg shadow-xl p-6 mb-6 border border-slate-700">
+              <div className="flex items-center gap-3 mb-4">
+                <Filter className="w-5 h-5 text-purple-400" />
+                <h2 className="text-xl font-semibold text-white">Filters</h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Search</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                      placeholder="Filter by keyword..."
+                      className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Start Date</label>
+                  <input
+                    type="datetime-local"
+                    value={dateRange.start}
+                    onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">End Date</label>
+                  <input
+                    type="datetime-local"
+                    value={dateRange.end}
+                    onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                    className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Sources</label>
+                <div className="flex flex-wrap gap-2">
+                  {uniqueSources.map(source => (
+                    <button
+                      key={source}
+                      onClick={() => toggleSource(source)}
+                      className={`px-3 py-1 rounded-lg text-sm font-medium border transition-all ${
+                        selectedSources.has(source)
+                          ? sourceColors[source] || 'bg-slate-600 text-white border-slate-500'
+                          : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'
+                      }`}
+                    >
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 text-sm text-slate-400">
+                Showing {filteredTimeline.length} of {timeline.length} events
+              </div>
+            </div>
+
+            <div className="bg-slate-800 rounded-lg shadow-xl border border-slate-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-750 border-b border-slate-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Timestamp</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Source</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Event</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Details</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700">
+                    {filteredTimeline.map((event, idx) => {
+                      const isExpanded = expandedRows.has(idx);
+                      const dataText = event.data || '';
+                      const isTruncatable = dataText.length > 100;
+                      const displayData = (isTruncatable && !isExpanded) ? dataText.substring(0, 100) + '...' : dataText;
+                      
+                      return (
+                        <tr key={idx} className="hover:bg-slate-750 transition-colors">
+                          <td className="px-4 py-3 text-sm text-slate-300 whitespace-nowrap">
+                            {event.timestamp ? event.timestamp.toLocaleString() : <span className="text-slate-500 italic">No timestamp</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-block px-2 py-1 rounded text-xs font-medium border ${sourceColors[event.source] || 'bg-slate-600 text-white border-slate-500'}`}>
+                              {event.source}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{event.event}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300">{event.details}</td>
+                          <td className="px-4 py-3 text-sm text-slate-400 font-mono max-w-md">
+                            <div className="whitespace-pre-line">{displayData}</div>
+                            {isTruncatable && (
+                              <button
+                                onClick={() => toggleExpand(idx)}
+                                className="mt-1 text-xs text-purple-400 hover:text-purple-300 underline"
+                              >
+                                {isExpanded ? 'Show less' : 'Show more'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {timeline.length === 0 && !loading && (
+          <div className="bg-slate-800 rounded-lg shadow-xl p-12 text-center border border-slate-700">
+            <Clock className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+            <p className="text-slate-400 text-lg">No timeline data loaded. Upload CSV files from your triage collection to begin.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default DFIRTimelineBuilder;
+
+        ReactDOM.render(<DFIRTimelineBuilder />, document.getElementById('root'));
+    </script>
+</body>
+</html>
